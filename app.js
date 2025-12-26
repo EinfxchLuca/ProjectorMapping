@@ -90,6 +90,7 @@
     renderShapesUI();
     renderOverlay();
     updateShapeHandles();
+    draw();
   }
 
   function deleteSelectedShape(){
@@ -99,6 +100,8 @@
     renderShapesUI();
     renderOverlay();
     updateShapeHandles();
+    // redraw canvas to remove deleted shape's image
+    draw();
   }
 
   function renderShapesUI(){
@@ -109,7 +112,7 @@
       const btns = document.createElement('div');
   const sel = document.createElement('button'); sel.className='selectBtn'; sel.textContent = selectedShapeId===s.id? 'Selected' : 'Select';
   sel.addEventListener('click', ()=>{ selectedShapeId = s.id; renderShapesUI(); renderOverlay(); updateShapeHandles(); updateHandlePositions(); });
-  const del = document.createElement('button'); del.className='selectBtn'; del.textContent='Delete'; del.addEventListener('click', ()=>{ shapes = shapes.filter(x=>x.id!==s.id); if(selectedShapeId===s.id) selectedShapeId=null; renderShapesUI(); renderOverlay(); updateShapeHandles(); updateHandlePositions(); });
+  const del = document.createElement('button'); del.className='selectBtn'; del.textContent='Delete'; del.addEventListener('click', ()=>{ shapes = shapes.filter(x=>x.id!==s.id); if(selectedShapeId===s.id) selectedShapeId=null; renderShapesUI(); renderOverlay(); updateShapeHandles(); updateHandlePositions(); draw(); });
       btns.appendChild(sel); btns.appendChild(del);
       div.appendChild(name); div.appendChild(btns);
       shapesListEl.appendChild(div);
@@ -219,6 +222,8 @@
       }
       renderOverlay();
       updateShapeHandles();
+      // redraw canvas so assigned images follow the moved shape
+      draw();
     }
   }
   function endDrag(){ active=null; }
