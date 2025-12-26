@@ -107,9 +107,9 @@
       const div = document.createElement('div'); div.className='shape-item';
       const name = document.createElement('div'); name.className='name'; name.textContent = s.type + ' ('+s.id+')';
       const btns = document.createElement('div');
-      const sel = document.createElement('button'); sel.className='selectBtn'; sel.textContent = selectedShapeId===s.id? 'Selected' : 'Select';
-      sel.addEventListener('click', ()=>{ selectedShapeId = s.id; renderShapesUI(); renderOverlay(); updateShapeHandles(); });
-      const del = document.createElement('button'); del.className='selectBtn'; del.textContent='Delete'; del.addEventListener('click', ()=>{ shapes = shapes.filter(x=>x.id!==s.id); if(selectedShapeId===s.id) selectedShapeId=null; renderShapesUI(); renderOverlay(); updateShapeHandles(); });
+  const sel = document.createElement('button'); sel.className='selectBtn'; sel.textContent = selectedShapeId===s.id? 'Selected' : 'Select';
+  sel.addEventListener('click', ()=>{ selectedShapeId = s.id; renderShapesUI(); renderOverlay(); updateShapeHandles(); updateHandlePositions(); });
+  const del = document.createElement('button'); del.className='selectBtn'; del.textContent='Delete'; del.addEventListener('click', ()=>{ shapes = shapes.filter(x=>x.id!==s.id); if(selectedShapeId===s.id) selectedShapeId=null; renderShapesUI(); renderOverlay(); updateShapeHandles(); updateHandlePositions(); });
       btns.appendChild(sel); btns.appendChild(del);
       div.appendChild(name); div.appendChild(btns);
       shapesListEl.appendChild(div);
@@ -127,7 +127,7 @@
         const cir = document.createElementNS('http://www.w3.org/2000/svg','circle');
         cir.setAttribute('cx',cx); cir.setAttribute('cy',cy); cir.setAttribute('r',r);
         if(s.id===selectedShapeId) cir.classList.add('selected');
-        cir.addEventListener('pointerdown', e=>{ selectedShapeId = s.id; renderShapesUI(); updateShapeHandles(); });
+        cir.addEventListener('pointerdown', e=>{ selectedShapeId = s.id; renderShapesUI(); updateShapeHandles(); updateHandlePositions(); });
         overlaySvg.appendChild(cir);
       } else {
         // polygon
@@ -135,7 +135,7 @@
         const poly = document.createElementNS('http://www.w3.org/2000/svg','polygon');
         poly.setAttribute('points', pts);
         if(s.id===selectedShapeId) poly.classList.add('selected');
-        poly.addEventListener('pointerdown', e=>{ selectedShapeId = s.id; renderShapesUI(); updateShapeHandles(); });
+        poly.addEventListener('pointerdown', e=>{ selectedShapeId = s.id; renderShapesUI(); updateShapeHandles(); updateHandlePositions(); });
         overlaySvg.appendChild(poly);
       }
     });
@@ -182,12 +182,11 @@
     const rect = canvas.getBoundingClientRect();
     handleEls.forEach((el,i)=>{
       const c = corners[i];
-      const left = rect.left + c.x*rect.width;
-      const top = rect.top + c.y*rect.height;
-      // place in handles container coordinates
       const parentRect = handlesEl.getBoundingClientRect();
       el.style.left = (c.x*parentRect.width) + 'px';
       el.style.top = (c.y*parentRect.height) + 'px';
+      // hide corner handles when a shape is selected
+      el.style.display = selectedShapeId ? 'none' : 'block';
     });
   }
 
@@ -245,12 +244,24 @@
     const url = URL.createObjectURL(f);
     const img = new Image();
     img.onload = ()=>{
-      image = img;
-      imgWidth = img.width; imgHeight = img.height;
-      // keep default corners to full canvas
-      corners = [ {x:0,y:0},{x:1,y:0},{x:1,y:1},{x:0,y:1} ];
-      updateHandlePositions();
-      resizeCanvas();
+      // If a shape is selected, assign the image to that shape, otherwise treat as the global warp image
+      if(selectedShapeId){
+        const s = shapes.find(x=>x.id===selectedShapeId);
+        if(s){
+          s.image = img;
+          s.imgWidth = img.width; s.imgHeight = img.height;
+        }
+      } else {
+        image = img;
+        imgWidth = img.width; imgHeight = img.height;
+        // keep default corners to full canvas
+        corners = [ {x:0,y:0},{x:1,y:0},{x:1,y:1},{x:0,y:1} ];
+        updateHandlePositions();
+        resizeCanvas();
+      }
+      renderShapesUI();
+      renderOverlay();
+      draw();
       URL.revokeObjectURL(url);
     };
     img.src = url;
@@ -346,62 +357,126 @@
   function draw(){
     const w = canvas.width, h = canvas.height;
     ctx.clearRect(0,0,w,h);
-    if(!image) return;
+    // Draw global warp image (if any)
+    if(image){
+      // Prepare offscreen image canvas scaled to a reasonable size to keep performance
+      const off = document.createElement('canvas');
+      const rescale = Math.min(1024 / imgWidth, 1024 / imgHeight, 1);
+      off.width = Math.round(imgWidth * rescale);
+      off.height = Math.round(imgHeight * rescale);
+      const octx = off.getContext('2d');
+      octx.drawImage(image, 0, 0, off.width, off.height);
 
-    // Prepare offscreen image canvas scaled to a reasonable size to keep performance
-    const off = document.createElement('canvas');
-    const rescale = Math.min(1024 / imgWidth, 1024 / imgHeight, 1);
-    off.width = Math.round(imgWidth * rescale);
-    off.height = Math.round(imgHeight * rescale);
-    const octx = off.getContext('2d');
-    octx.drawImage(image, 0, 0, off.width, off.height);
+      // Build dest corner coordinates in pixel space of canvas
+      const dst = corners.map(c => ({x: c.x * w, y: c.y * h}));
 
-    // Build dest corner coordinates in pixel space of canvas
-    const rect = canvas.getBoundingClientRect();
-    const dst = corners.map(c => ({x: c.x * w, y: c.y * h}));
+      const cols = Number(gridRange.value);
+      const rows = Math.round(cols * off.height / off.width);
+      const sxStep = off.width / cols;
+      const syStep = off.height / rows;
 
-    const cols = Number(gridRange.value);
-    const rows = Math.round(cols * off.height / off.width);
-    const sxStep = off.width / cols;
-    const syStep = off.height / rows;
+      // Draw mesh cells as two triangles per cell
+      for(let j=0;j<rows;j++){
+        for(let i=0;i<cols;i++){
+          // source triangle 1 (top-left)
+          const sx0 = i * sxStep, sy0 = j * syStep;
+          const sx1 = (i+1)*sxStep, sy1 = j * syStep;
+          const sx2 = i*sxStep, sy2 = (j+1)*syStep;
 
-    // Draw mesh cells as two triangles per cell
-    for(let j=0;j<rows;j++){
-      for(let i=0;i<cols;i++){
-        // source triangle 1 (top-left)
-        const sx0 = i * sxStep, sy0 = j * syStep;
-        const sx1 = (i+1)*sxStep, sy1 = j * syStep;
-        const sx2 = i*sxStep, sy2 = (j+1)*syStep;
+          // compute normalized positions within source (0..1) then map to dest via bilinear interpolation of corner quad
+          const u0 = sx0 / off.width, v0 = sy0 / off.height;
+          const u1 = sx1 / off.width, v1 = sy1 / off.height;
+          const u2 = sx2 / off.width, v2 = sy2 / off.height;
 
-        // compute normalized positions within source (0..1) then map to dest via bilinear interpolation of corner quad
-        const u0 = sx0 / off.width, v0 = sy0 / off.height;
-        const u1 = sx1 / off.width, v1 = sy1 / off.height;
-        const u2 = sx2 / off.width, v2 = sy2 / off.height;
+          const d0 = bilinear(u0,v0,dst);
+          const d1 = bilinear(u1,v1,dst);
+          const d2 = bilinear(u2,v2,dst);
 
-        const d0 = bilinear(u0,v0,dst);
-        const d1 = bilinear(u1,v1,dst);
-        const d2 = bilinear(u2,v2,dst);
+          drawTriangle(off, sx0, sy0, sx1, sy1, sx2, sy2, d0.x, d0.y, d1.x, d1.y, d2.x, d2.y);
 
-        // draw triangle: map source full canvas coords to triangle using transform. But our drawTriangle expects source triangle coordinates in the off canvas space; we'll transform so that source coordinates are placed directly.
-        // To use drawTriangle which uses setTransform and then drawImage(off,0,0), we need to supply source triangle in off-space that corresponds to the triangle within the full image placed at origin: We'll use coordinates relative to off canvas directly.
-        drawTriangle(off, sx0, sy0, sx1, sy1, sx2, sy2, d0.x, d0.y, d1.x, d1.y, d2.x, d2.y);
-
-        // triangle 2 (bottom-right)
-        const sx3 = (i+1)*sxStep, sy3 = (j+1)*syStep;
-        const u3 = sx3 / off.width, v3 = sy3 / off.height;
-        const d3 = bilinear(u3,v3,dst);
-        drawTriangle(off, sx1, sy1, sx3, sy3, sx2, sy2, d1.x, d1.y, d3.x, d3.y, d2.x, d2.y);
+          const sx3 = (i+1)*sxStep, sy3 = (j+1)*syStep;
+          const u3 = sx3 / off.width, v3 = sy3 / off.height;
+          const d3 = bilinear(u3,v3,dst);
+          drawTriangle(off, sx1, sy1, sx3, sy3, sx2, sy2, d1.x, d1.y, d3.x, d3.y, d2.x, d2.y);
+        }
       }
+
+      // draw corner outlines
+      ctx.save();
+      ctx.strokeStyle = 'rgba(255,255,255,0.6)'; ctx.lineWidth = Math.max(1,2*dpr);
+      ctx.beginPath();
+      ctx.moveTo(dst[0].x, dst[0].y);
+      for(let k=1;k<4;k++) ctx.lineTo(dst[k].x, dst[k].y);
+      ctx.closePath(); ctx.stroke();
+      ctx.restore();
     }
 
-    // draw corner outlines
-    ctx.save();
-    ctx.strokeStyle = 'rgba(255,255,255,0.6)'; ctx.lineWidth = Math.max(1,2*dpr);
-    ctx.beginPath();
-    ctx.moveTo(dst[0].x, dst[0].y);
-    for(let k=1;k<4;k++) ctx.lineTo(dst[k].x, dst[k].y);
-    ctx.closePath(); ctx.stroke();
-    ctx.restore();
+    // Draw images assigned to shapes (each shape may have its own image)
+    shapes.forEach(s=>{
+      if(!s.image) return;
+      // prepare offscreen for shape image
+      const soff = document.createElement('canvas');
+      const sres = Math.min(1024 / (s.imgWidth||512), 1024 / (s.imgHeight||512), 1);
+      soff.width = Math.max(1, Math.round((s.imgWidth||512) * sres));
+      soff.height = Math.max(1, Math.round((s.imgHeight||512) * sres));
+      const soctx = soff.getContext('2d');
+      soctx.drawImage(s.image, 0, 0, soff.width, soff.height);
+
+      if(s.type==='circle'){
+        const cx = s.center.x * w, cy = s.center.y * h, r = s.radius * Math.min(w,h);
+        ctx.save();
+        ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI*2); ctx.closePath(); ctx.clip();
+        // draw image centered into circle
+        const drawSize = 2*r;
+        // preserve aspect, cover
+        const ar = soff.width/soff.height;
+        let dw = drawSize, dh = drawSize;
+        if(soff.width/soff.height > 1) { dh = drawSize / ar; } else { dw = drawSize * ar; }
+        const dx = cx - dw/2, dy = cy - dh/2;
+        ctx.drawImage(soff, dx, dy, dw, dh);
+        ctx.restore();
+      } else if(s.type==='triangle'){
+        // clip to triangle and draw image into bounding box (preserve aspect, cover)
+        const p0 = s.points[0], p1 = s.points[1], p2 = s.points[2];
+        const x0 = Math.min(p0.x,p1.x,p2.x)*w, x1 = Math.max(p0.x,p1.x,p2.x)*w;
+        const y0 = Math.min(p0.y,p1.y,p2.y)*h, y1 = Math.max(p0.y,p1.y,p2.y)*h;
+        ctx.save();
+        ctx.beginPath(); ctx.moveTo(p0.x*w,p0.y*h); ctx.lineTo(p1.x*w,p1.y*h); ctx.lineTo(p2.x*w,p2.y*h); ctx.closePath(); ctx.clip();
+        // compute cover fit
+        const bw = x1-x0, bh = y1-y0;
+        let dw = bw, dh = bh;
+        const ar = soff.width/soff.height;
+        if(bw/bh > ar){ dh = bw / ar; } else { dw = bh * ar; }
+        const dx = x0 + (bw-dw)/2, dy = y0 + (bh-dh)/2;
+        ctx.drawImage(soff, dx, dy, dw, dh);
+        ctx.restore();
+      } else if(s.type==='rectangle' && s.points && s.points.length>=4){
+        // treat as quad: map source image to quad using bilinear grid mapping
+        const dstCorners = s.points.map(p => ({x: p.x * w, y: p.y * h}));
+        const cols = Math.min(32, Math.max(8, Math.round(soff.width/16)));
+        const rows = Math.max(2, Math.round(cols * soff.height / soff.width));
+        const sxStep = soff.width / cols;
+        const syStep = soff.height / rows;
+        for(let j=0;j<rows;j++){
+          for(let i=0;i<cols;i++){
+            const sx0 = i * sxStep, sy0 = j * syStep;
+            const sx1 = (i+1) * sxStep, sy1 = j * syStep;
+            const sx2 = i * sxStep, sy2 = (j+1) * syStep;
+            const u0 = sx0 / soff.width, v0 = sy0 / soff.height;
+            const u1 = sx1 / soff.width, v1 = sy1 / soff.height;
+            const u2 = sx2 / soff.width, v2 = sy2 / soff.height;
+            const d0 = bilinear(u0,v0,dstCorners);
+            const d1 = bilinear(u1,v1,dstCorners);
+            const d2 = bilinear(u2,v2,dstCorners);
+            drawTriangle(soff, sx0, sy0, sx1, sy1, sx2, sy2, d0.x, d0.y, d1.x, d1.y, d2.x, d2.y);
+            const sx3 = (i+1)*sxStep, sy3 = (j+1)*syStep;
+            const u3 = sx3 / soff.width, v3 = sy3 / soff.height;
+            const d3 = bilinear(u3,v3,dstCorners);
+            drawTriangle(soff, sx1, sy1, sx3, sy3, sx2, sy2, d1.x, d1.y, d3.x, d3.y, d2.x, d2.y);
+          }
+        }
+      }
+    });
   }
 
   // bilinear interpolation of a unit quad to destination quad (corners in pixel coords)
@@ -439,6 +514,7 @@
         return s.points.some(p=>{ const dx=p.x-x, dy=p.y-y; return dx*dx+dy*dy < 0.02*0.02; });
       });
       if(!hit){ selectedShapeId = null; renderShapesUI(); renderOverlay(); updateShapeHandles(); }
+      if(!hit){ updateHandlePositions(); }
     });
     window.addEventListener('pointermove', e => moveDrag(e.clientX,e.clientY));
     window.addEventListener('pointerup', endDrag);
