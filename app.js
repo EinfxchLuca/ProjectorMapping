@@ -8,6 +8,13 @@
   const canvas = document.getElementById('warpCanvas');
   const ctx = canvas.getContext('2d');
   const handlesEl = document.getElementById('handles');
+  const shapeHandlesEl = document.getElementById('shapeHandles');
+  const overlaySvg = document.getElementById('overlay');
+  const addTriangleBtn = document.getElementById('addTriangle');
+  const addRectangleBtn = document.getElementById('addRectangle');
+  const addCircleBtn = document.getElementById('addCircle');
+  const shapesListEl = document.getElementById('shapesList');
+  const deleteShapeBtn = document.getElementById('deleteShapeBtn');
   const fileInput = document.getElementById('file');
   const gridRange = document.getElementById('gridRange');
   const gridLabel = document.getElementById('gridLabel');
@@ -50,6 +57,127 @@
     handleEls.push(h);
   }
 
+  // Shapes support -----------------------------------------------------------------
+  let shapes = []; // {id, type:'polygon'|'circle', points:[{x,y}], center?, radius?}
+  let selectedShapeId = null;
+  let shapeIdCounter = 1;
+
+  function createShape(type){
+    const id = 's'+(shapeIdCounter++);
+    const center = {x:0.5 + (Math.random()-0.5)*0.1, y:0.45 + (Math.random()-0.5)*0.1};
+    let shape = {id, type};
+    if(type==='triangle'){
+      shape.points = [
+        {x:center.x-0.08, y:center.y+0.06},
+        {x:center.x+0.08, y:center.y+0.06},
+        {x:center.x, y:center.y-0.08}
+      ];
+    }else if(type==='rectangle'){
+      const w = 0.18, h = 0.12;
+      shape.points = [
+        {x:center.x-w/2,y:center.y-h/2},
+        {x:center.x+w/2,y:center.y-h/2},
+        {x:center.x+w/2,y:center.y+h/2},
+        {x:center.x-w/2,y:center.y+h/2}
+      ];
+    }else if(type==='circle'){
+      shape.center = center;
+      shape.radius = 0.08;
+      // represent circle by two handles: center and circumference point (we'll synthesize points for rendering)
+    }
+    shapes.push(shape);
+    selectedShapeId = id;
+    renderShapesUI();
+    renderOverlay();
+    updateShapeHandles();
+  }
+
+  function deleteSelectedShape(){
+    if(!selectedShapeId) return;
+    shapes = shapes.filter(s=>s.id!==selectedShapeId);
+    selectedShapeId = shapes.length? shapes[0].id : null;
+    renderShapesUI();
+    renderOverlay();
+    updateShapeHandles();
+  }
+
+  function renderShapesUI(){
+    shapesListEl.innerHTML='';
+    shapes.forEach(s=>{
+      const div = document.createElement('div'); div.className='shape-item';
+      const name = document.createElement('div'); name.className='name'; name.textContent = s.type + ' ('+s.id+')';
+      const btns = document.createElement('div');
+      const sel = document.createElement('button'); sel.className='selectBtn'; sel.textContent = selectedShapeId===s.id? 'Selected' : 'Select';
+      sel.addEventListener('click', ()=>{ selectedShapeId = s.id; renderShapesUI(); renderOverlay(); updateShapeHandles(); });
+      const del = document.createElement('button'); del.className='selectBtn'; del.textContent='Delete'; del.addEventListener('click', ()=>{ shapes = shapes.filter(x=>x.id!==s.id); if(selectedShapeId===s.id) selectedShapeId=null; renderShapesUI(); renderOverlay(); updateShapeHandles(); });
+      btns.appendChild(sel); btns.appendChild(del);
+      div.appendChild(name); div.appendChild(btns);
+      shapesListEl.appendChild(div);
+    });
+  }
+
+  function renderOverlay(){
+    // overlaySvg uses pixel coordinates matching canvas bounding rect
+    const rect = canvas.getBoundingClientRect();
+    overlaySvg.setAttribute('viewBox', `0 0 ${rect.width} ${rect.height}`);
+    overlaySvg.innerHTML = '';
+    shapes.forEach(s=>{
+      if(s.type==='circle'){
+        const cx = s.center.x * rect.width; const cy = s.center.y * rect.height; const r = s.radius * Math.min(rect.width, rect.height);
+        const cir = document.createElementNS('http://www.w3.org/2000/svg','circle');
+        cir.setAttribute('cx',cx); cir.setAttribute('cy',cy); cir.setAttribute('r',r);
+        if(s.id===selectedShapeId) cir.classList.add('selected');
+        cir.addEventListener('pointerdown', e=>{ selectedShapeId = s.id; renderShapesUI(); updateShapeHandles(); });
+        overlaySvg.appendChild(cir);
+      } else {
+        // polygon
+        const pts = s.points.map(p => `${p.x*rect.width},${p.y*rect.height}`).join(' ');
+        const poly = document.createElementNS('http://www.w3.org/2000/svg','polygon');
+        poly.setAttribute('points', pts);
+        if(s.id===selectedShapeId) poly.classList.add('selected');
+        poly.addEventListener('pointerdown', e=>{ selectedShapeId = s.id; renderShapesUI(); updateShapeHandles(); });
+        overlaySvg.appendChild(poly);
+      }
+    });
+  }
+
+  function updateShapeHandles(){
+    // recreate shape handles for selected shape only
+    shapeHandlesEl.innerHTML = '';
+    if(!selectedShapeId) return;
+    const s = shapes.find(x=>x.id===selectedShapeId);
+    if(!s) return;
+    const rect = canvas.getBoundingClientRect();
+    if(s.type==='circle'){
+      // center handle
+      const cen = document.createElement('div'); cen.className = 'shape-handle'; cen.dataset.shape = s.id; cen.dataset.idx = 0;
+      cen.style.left = (s.center.x * rect.width) + 'px'; cen.style.top = (s.center.y * rect.height) + 'px';
+      shapeHandlesEl.appendChild(cen);
+      // radius handle at angle 0
+      const rpoint = {x: s.center.x + s.radius, y: s.center.y};
+      const edge = document.createElement('div'); edge.className='shape-handle'; edge.dataset.shape = s.id; edge.dataset.idx = 1;
+      edge.style.left = (rpoint.x * rect.width) + 'px'; edge.style.top = (rpoint.y * rect.height) + 'px';
+      shapeHandlesEl.appendChild(edge);
+    } else {
+      s.points.forEach((p,idx)=>{
+        const h = document.createElement('div'); h.className='shape-handle'; h.dataset.shape = s.id; h.dataset.idx = idx;
+        h.style.left = (p.x * rect.width) + 'px'; h.style.top = (p.y * rect.height) + 'px';
+        shapeHandlesEl.appendChild(h);
+      });
+    }
+    // attach pointer events to shape handles
+    Array.from(shapeHandlesEl.children).forEach(el=>{
+      el.addEventListener('pointerdown', e=>{ e.preventDefault(); el.setPointerCapture && el.setPointerCapture(e.pointerId); startDragShape(el.dataset.shape, Number(el.dataset.idx), e.clientX, e.clientY); });
+      el.addEventListener('pointermove', e=>{ if(e.pressure===0) return; moveDrag(e.clientX, e.clientY); });
+      el.addEventListener('pointerup', e=>{ endDrag(); el.releasePointerCapture && el.releasePointerCapture(e.pointerId); });
+      el.addEventListener('lostpointercapture', e=> endDrag());
+    });
+  }
+
+  // shape drag state
+  let active = null; // reuse active var (overrides earlier definition) - supports both corner and shape drags
+  function startDragShape(shapeId, idx, clientX, clientY){ active = {type:'shape', shapeId, idx, startX:clientX, startY:clientY}; }
+
   function updateHandlePositions(){
     const rect = canvas.getBoundingClientRect();
     handleEls.forEach((el,i)=>{
@@ -64,19 +192,35 @@
   }
 
   // Interaction: unified pointer logic
-  let active = null;
-  function startDrag(i, clientX, clientY){
-    active = {i, startX:clientX, startY:clientY};
-  }
+  function startDrag(i, clientX, clientY){ active = {type:'corner', i, startX:clientX, startY:clientY}; }
   function moveDrag(clientX, clientY){
     if(!active) return;
     const rect = canvas.getBoundingClientRect();
     const nx = (clientX - rect.left)/rect.width;
     const ny = (clientY - rect.top)/rect.height;
-    corners[active.i].x = Math.min(1,Math.max(0,nx));
-    corners[active.i].y = Math.min(1,Math.max(0,ny));
-    updateHandlePositions();
-    draw();
+    if(active.type==='corner'){
+      corners[active.i].x = Math.min(1,Math.max(0,nx));
+      corners[active.i].y = Math.min(1,Math.max(0,ny));
+      updateHandlePositions();
+      draw();
+    } else if(active.type==='shape'){
+      const s = shapes.find(x=>x.id===active.shapeId);
+      if(!s) return;
+      if(s.type==='circle'){
+        if(active.idx===0){ // center
+          s.center.x = nx; s.center.y = ny;
+        } else { // radius handle
+          const dx = nx - s.center.x, dy = ny - s.center.y; s.radius = Math.sqrt(dx*dx+dy*dy);
+        }
+      } else {
+        // polygon point
+        const idx = active.idx;
+        s.points[idx].x = Math.min(1,Math.max(0,nx));
+        s.points[idx].y = Math.min(1,Math.max(0,ny));
+      }
+      renderOverlay();
+      updateShapeHandles();
+    }
   }
   function endDrag(){ active=null; }
 
@@ -87,6 +231,12 @@
     el.addEventListener('pointerup', e => { endDrag(); el.releasePointerCapture && el.releasePointerCapture(e.pointerId); });
     el.addEventListener('lostpointercapture', e => endDrag());
   });
+
+  // attach events for shape creation / deletion
+  addTriangleBtn.addEventListener('click', ()=> createShape('triangle'));
+  addRectangleBtn.addEventListener('click', ()=> createShape('rectangle'));
+  addCircleBtn.addEventListener('click', ()=> createShape('circle'));
+  deleteShapeBtn.addEventListener('click', deleteSelectedShape);
 
   // File load
   fileInput.addEventListener('change', ev => {
@@ -276,6 +426,19 @@
       let best = 0, bestd = Infinity;
       for(let i=0;i<4;i++){ const dx = corners[i].x - x, dy = corners[i].y - y; const d = dx*dx+dy*dy; if(d<bestd){bestd=d;best=i;} }
       startDrag(best,e.clientX,e.clientY);
+    });
+    // clicking on empty canvas deselects shape
+    canvas.addEventListener('pointerup', e=>{
+      // if pointer up without dragging a shape, keep selection as is
+      // short click on background deselects
+      const rect = canvas.getBoundingClientRect();
+      const x = (e.clientX - rect.left) / rect.width; const y = (e.clientY - rect.top) / rect.height;
+      // check if click landed on any shape (approx)
+      const hit = shapes.some(s=>{
+        if(s.type==='circle'){ const dx=x-s.center.x, dy=y-s.center.y; return Math.sqrt(dx*dx+dy*dy) <= s.radius; }
+        return s.points.some(p=>{ const dx=p.x-x, dy=p.y-y; return dx*dx+dy*dy < 0.02*0.02; });
+      });
+      if(!hit){ selectedShapeId = null; renderShapesUI(); renderOverlay(); updateShapeHandles(); }
     });
     window.addEventListener('pointermove', e => moveDrag(e.clientX,e.clientY));
     window.addEventListener('pointerup', endDrag);

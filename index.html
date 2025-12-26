@@ -8,14 +8,24 @@
 </head>
 <body>
   <div class="app">
-    <header>
-      <h1>Projector Mapping — Warp Tool</h1>
+    <header id="header">
+      <div>
+        <h1>Projector Mapping — Warp Tool</h1>
+        <p class="subtitle">Warp and align images to your projection surface. Create editable shapes and preview overlays.</p>
+      </div>
+      <div>
+        <!-- small action area (future quick actions) -->
+      </div>
     </header>
 
     <main>
       <section class="canvas-area">
         <canvas id="warpCanvas"></canvas>
-        <div id="handles" class="handles"></div>
+        <!-- SVG overlay for connecting lines and shapes -->
+        <svg id="overlay" class="overlay" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="none"></svg>
+        <div id="handles" class="handles" aria-hidden="true"></div>
+        <!-- separate container for shape handles so they can be created/destroyed independently -->
+        <div id="shapeHandles" class="handles shape-handles" aria-hidden="true"></div>
       </section>
 
       <aside class="controls">
@@ -31,10 +41,21 @@
         </div>
 
         <div class="control-row buttons">
-          <button id="resetBtn">Reset</button>
-          <button id="saveBtn">Save calibration</button>
-          <button id="loadBtn">Load calibration</button>
+          <button id="resetBtn" class="btn secondary">Reset</button>
+          <button id="saveBtn" class="btn">Save calibration</button>
+          <button id="loadBtn" class="btn secondary">Load calibration</button>
           <input id="loadFile" type="file" accept="application/json" style="display:none" />
+        </div>
+
+        <div class="control-row shapes-controls">
+          <label>Shapes</label>
+          <div class="shape-buttons">
+            <button id="addTriangle" class="btn">Add triangle</button>
+            <button id="addRectangle" class="btn">Add rectangle</button>
+            <button id="addCircle" class="btn">Add circle</button>
+          </div>
+          <div id="shapesList" class="shapes-list"></div>
+          <div style="margin-top:8px"><button id="deleteShapeBtn" class="btn secondary">Delete selected shape</button></div>
         </div>
 
         <div class="control-row info">
