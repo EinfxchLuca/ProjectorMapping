@@ -1,0 +1,34 @@
+:root{
+  --bg:#0f1720;
+  --panel:#0b1220;
+  --muted:#9aa6b2;
+  --accent:#3b82f6;
+}
+*{box-sizing:border-box}
+html,body,#warpCanvas{height:100%}
+body{
+  margin:0;
+  font-family:system-ui,-apple-system,Segoe UI,Roboto,"Helvetica Neue",Arial;
+  background:linear-gradient(180deg,#071022 0%, #0b1220 100%);
+  color:#e6eef6;
+}
+.app{max-width:1200px;margin:18px auto;padding:12px}
+header h1{margin:0 0 12px 0;font-size:20px}
+main{display:flex;gap:12px}
+.canvas-area{flex:1;min-height:420px;background:#000;border-radius:6px;position:relative;overflow:hidden}
+#warpCanvas{width:100%;height:100%;display:block}
+.handles{position:absolute;left:0;top:0;right:0;bottom:0;pointer-events:none}
+.handle{width:28px;height:28px;border-radius:50%;background:var(--accent);border:2px solid #fff;position:absolute;transform:translate(-50%,-50%);touch-action:none;pointer-events:auto;}
+.controls{width:320px;background:rgba(255,255,255,0.03);padding:12px;border-radius:8px}
+.control-row{margin-bottom:12px}
+.control-row label{display:block;margin-bottom:6px;color:var(--muted);font-size:13px}
+.control-row input[type=file]{width:100%}
+.buttons button{margin-right:6px}
+.info p{font-size:13px;color:var(--muted);margin:0}
+footer{margin-top:12px;color:var(--muted)}
+
+/* Responsive */
+@media (max-width:900px){
+  main{flex-direction:column}
+  .controls{width:100%}
+}

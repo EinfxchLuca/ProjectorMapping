@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Projector Mapping — Warp Tool</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="app">
+    <header>
+      <h1>Projector Mapping — Warp Tool</h1>
+    </header>
+
+    <main>
+      <section class="canvas-area">
+        <canvas id="warpCanvas"></canvas>
+        <div id="handles" class="handles"></div>
+      </section>
+
+      <aside class="controls">
+        <div class="control-row">
+          <label for="file">Image / Photo</label>
+          <input id="file" type="file" accept="image/*" />
+        </div>
+
+        <div class="control-row">
+          <label for="gridRange">Mesh resolution</label>
+          <input id="gridRange" type="range" min="4" max="64" value="30" />
+          <small id="gridLabel">30</small>
+        </div>
+
+        <div class="control-row buttons">
+          <button id="resetBtn">Reset</button>
+          <button id="saveBtn">Save calibration</button>
+          <button id="loadBtn">Load calibration</button>
+          <input id="loadFile" type="file" accept="application/json" style="display:none" />
+        </div>
+
+        <div class="control-row info">
+          <p>Touch or drag the corner handles to align the image to your projection surface. Works with mouse and touch (iPad/iPhone).</p>
+        </div>
+      </aside>
+    </main>
+
+    <footer>
+      <small>Static demo — open <strong>index.html</strong> in a browser or host with any static server.</small>
+    </footer>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
