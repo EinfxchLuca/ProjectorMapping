@@ -61,6 +61,8 @@
   let shapes = []; // {id, type:'polygon'|'circle', points:[{x,y}], center?, radius?}
   let selectedShapeId = null;
   let shapeIdCounter = 1;
+  let needsAnimation = false;
+  let animFrame = null;
 
   function createShape(type){
     const id = 's'+(shapeIdCounter++);
@@ -120,13 +122,13 @@
   }
 
   function renderOverlay(){
-    // overlaySvg uses pixel coordinates matching canvas bounding rect
-    const rect = canvas.getBoundingClientRect();
-    overlaySvg.setAttribute('viewBox', `0 0 ${rect.width} ${rect.height}`);
+    // Use canvas internal pixel size (device pixels) for the SVG viewBox so coordinates align with canvas rendering
+    const vw = canvas.width, vh = canvas.height;
+    overlaySvg.setAttribute('viewBox', `0 0 ${vw} ${vh}`);
     overlaySvg.innerHTML = '';
     shapes.forEach(s=>{
       if(s.type==='circle'){
-        const cx = s.center.x * rect.width; const cy = s.center.y * rect.height; const r = s.radius * Math.min(rect.width, rect.height);
+        const cx = s.center.x * vw; const cy = s.center.y * vh; const r = s.radius * Math.min(vw, vh);
         const cir = document.createElementNS('http://www.w3.org/2000/svg','circle');
         cir.setAttribute('cx',cx); cir.setAttribute('cy',cy); cir.setAttribute('r',r);
         if(s.id===selectedShapeId) cir.classList.add('selected');
@@ -134,7 +136,7 @@
         overlaySvg.appendChild(cir);
       } else {
         // polygon
-        const pts = s.points.map(p => `${p.x*rect.width},${p.y*rect.height}`).join(' ');
+        const pts = s.points.map(p => `${p.x*vw},${p.y*vh}`).join(' ');
         const poly = document.createElementNS('http://www.w3.org/2000/svg','polygon');
         poly.setAttribute('points', pts);
         if(s.id===selectedShapeId) poly.classList.add('selected');
@@ -249,28 +251,65 @@
     const url = URL.createObjectURL(f);
     const img = new Image();
     img.onload = ()=>{
-      // If a shape is selected, assign the image to that shape, otherwise treat as the global warp image
+      // If a shape is selected, assign the image/video to that shape, otherwise treat as the global warp image
       if(selectedShapeId){
         const s = shapes.find(x=>x.id===selectedShapeId);
         if(s){
+          // clean up any previous resource
+          if(s._url){ URL.revokeObjectURL(s._url); s._url = null; }
           s.image = img;
+          s.video = null;
           s.imgWidth = img.width; s.imgHeight = img.height;
+          // detect animated GIF by MIME type
+          if(f.type === 'image/gif'){
+            needsAnimation = true; startAnimationLoop();
+          }
         }
       } else {
-        image = img;
+        // global
+        if(image && image._url){ URL.revokeObjectURL(image._url); }
+        image = img; image._url = url;
         imgWidth = img.width; imgHeight = img.height;
         // keep default corners to full canvas
         corners = [ {x:0,y:0},{x:1,y:0},{x:1,y:1},{x:0,y:1} ];
         updateHandlePositions();
         resizeCanvas();
+        if(f.type === 'image/gif') { needsAnimation = true; startAnimationLoop(); }
       }
       renderShapesUI();
       renderOverlay();
       draw();
-      URL.revokeObjectURL(url);
+      // don't revoke URL for resources we keep; only revoke when replacing/deleting
+      if(!selectedShapeId) URL.revokeObjectURL(url);
     };
+    // if it's a video file, create a HTMLVideoElement instead and assign once loaded
+    if(f.type && f.type.startsWith('video/')){
+      const vid = document.createElement('video'); vid.src = url; vid.loop = true; vid.muted = true; vid.playsInline = true; vid.autoplay = true;
+      vid.addEventListener('loadeddata', ()=>{
+        if(selectedShapeId){
+          const s = shapes.find(x=>x.id===selectedShapeId);
+          if(s){ if(s._url){ URL.revokeObjectURL(s._url); s._url=null; } s.video = vid; s.image = null; s.imgWidth = vid.videoWidth; s.imgHeight = vid.videoHeight; s._url = url; }
+        } else { if(image && image._url){ URL.revokeObjectURL(image._url);} image = null; image = vid; image._url = url; imgWidth = vid.videoWidth; imgHeight = vid.videoHeight; corners = [ {x:0,y:0},{x:1,y:0},{x:1,y:1},{x:0,y:1} ]; updateHandlePositions(); resizeCanvas(); }
+        needsAnimation = true; startAnimationLoop(); renderShapesUI(); renderOverlay(); draw();
+      });
+      // start loading
+      vid.load();
+      return;
+    }
     img.src = url;
   });
+
+  function startAnimationLoop(){
+    if(animFrame) return;
+    function loop(){
+      draw();
+      animFrame = requestAnimationFrame(loop);
+    }
+    animFrame = requestAnimationFrame(loop);
+  }
+  function stopAnimationLoop(){
+    if(animFrame){ cancelAnimationFrame(animFrame); animFrame = null; }
+  }
 
   // Grid resolution
   gridRange.addEventListener('input', ()=>{ gridLabel.textContent = gridRange.value; draw(); });
@@ -362,7 +401,7 @@
   function draw(){
     const w = canvas.width, h = canvas.height;
     ctx.clearRect(0,0,w,h);
-    // Draw global warp image (if any)
+  // Draw global warp image (if any)
     if(image){
       // Prepare offscreen image canvas scaled to a reasonable size to keep performance
       const off = document.createElement('canvas');
@@ -418,28 +457,30 @@
 
     // Draw images assigned to shapes (each shape may have its own image)
     shapes.forEach(s=>{
-      if(!s.image) return;
+      if(!s.image && !s.video) return;
       // prepare offscreen for shape image
       const soff = document.createElement('canvas');
       const sres = Math.min(1024 / (s.imgWidth||512), 1024 / (s.imgHeight||512), 1);
       soff.width = Math.max(1, Math.round((s.imgWidth||512) * sres));
       soff.height = Math.max(1, Math.round((s.imgHeight||512) * sres));
       const soctx = soff.getContext('2d');
-      soctx.drawImage(s.image, 0, 0, soff.width, soff.height);
+      // draw current frame from image or video into the offscreen canvas
+      if(s.video){ try { soctx.drawImage(s.video, 0, 0, soff.width, soff.height); } catch(e){} }
+      else if(s.image){ soctx.drawImage(s.image, 0, 0, soff.width, soff.height); }
 
       if(s.type==='circle'){
         const cx = s.center.x * w, cy = s.center.y * h, r = s.radius * Math.min(w,h);
-        ctx.save();
-        ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI*2); ctx.closePath(); ctx.clip();
-        // draw image centered into circle
-        const drawSize = 2*r;
-        // preserve aspect, cover
-        const ar = soff.width/soff.height;
-        let dw = drawSize, dh = drawSize;
-        if(soff.width/soff.height > 1) { dh = drawSize / ar; } else { dw = drawSize * ar; }
-        const dx = cx - dw/2, dy = cy - dh/2;
-        ctx.drawImage(soff, dx, dy, dw, dh);
-        ctx.restore();
+  ctx.save();
+  ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI*2); ctx.closePath(); ctx.clip();
+  // draw image centered into circle
+  const drawSize = 2*r;
+  // preserve aspect, cover
+  const ar = soff.width/soff.height;
+  let dw = drawSize, dh = drawSize;
+  if(soff.width/soff.height > 1) { dh = drawSize / ar; } else { dw = drawSize * ar; }
+  const dx = cx - dw/2, dy = cy - dh/2;
+  ctx.drawImage(soff, dx, dy, dw, dh);
+  ctx.restore();
       } else if(s.type==='triangle'){
         // clip to triangle and draw image into bounding box (preserve aspect, cover)
         const p0 = s.points[0], p1 = s.points[1], p2 = s.points[2];
@@ -448,18 +489,19 @@
         ctx.save();
         ctx.beginPath(); ctx.moveTo(p0.x*w,p0.y*h); ctx.lineTo(p1.x*w,p1.y*h); ctx.lineTo(p2.x*w,p2.y*h); ctx.closePath(); ctx.clip();
         // compute cover fit
-        const bw = x1-x0, bh = y1-y0;
+  const bw = x1-x0, bh = y1-y0;
         let dw = bw, dh = bh;
         const ar = soff.width/soff.height;
         if(bw/bh > ar){ dh = bw / ar; } else { dw = bh * ar; }
         const dx = x0 + (bw-dw)/2, dy = y0 + (bh-dh)/2;
-        ctx.drawImage(soff, dx, dy, dw, dh);
+  ctx.drawImage(soff, dx, dy, dw, dh);
         ctx.restore();
       } else if(s.type==='rectangle' && s.points && s.points.length>=4){
         // treat as quad: map source image to quad using bilinear grid mapping
         const dstCorners = s.points.map(p => ({x: p.x * w, y: p.y * h}));
-        const cols = Math.min(32, Math.max(8, Math.round(soff.width/16)));
-        const rows = Math.max(2, Math.round(cols * soff.height / soff.width));
+  // use mesh resolution slider value for shape mapping so selected shape respects the control
+  const cols = Math.max(4, Math.min(128, Number(gridRange.value) || 32));
+  const rows = Math.max(2, Math.round(cols * soff.height / soff.width));
         const sxStep = soff.width / cols;
         const syStep = soff.height / rows;
         for(let j=0;j<rows;j++){
