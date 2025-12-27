@@ -144,10 +144,11 @@
     // Use CSS pixel dimensions (bounding client rect) for the SVG viewBox so overlay aligns with the visible canvas
     const rect = canvas.getBoundingClientRect();
     const vw = rect.width, vh = rect.height;
-    overlaySvg.style.left = rect.left + 'px';
-    overlaySvg.style.top = rect.top + 'px';
-    overlaySvg.style.width = rect.width + 'px';
-    overlaySvg.style.height = rect.height + 'px';
+  // Make the SVG fill the canvas-area container so its local (0,0)-(width,height) matches the canvas
+  overlaySvg.style.left = '0px';
+  overlaySvg.style.top = '0px';
+  overlaySvg.style.width = '100%';
+  overlaySvg.style.height = '100%';
     overlaySvg.setAttribute('viewBox', `0 0 ${vw} ${vh}`);
     overlaySvg.setAttribute('preserveAspectRatio','none');
     overlaySvg.innerHTML = '';
@@ -177,9 +178,10 @@
     if(!selectedShapeId) return;
     const s = shapes.find(x=>x.id===selectedShapeId);
     if(!s) return;
-    // Use the shapeHandles container size (CSS pixels) for consistent handle placement
-    const parentWidth = shapeHandlesEl.clientWidth || handlesEl.clientWidth;
-    const parentHeight = shapeHandlesEl.clientHeight || handlesEl.clientHeight;
+  // Use the canvas bounding rect (CSS pixels) for consistent handle placement so overlay and handles align
+  const rectForHandles = canvas.getBoundingClientRect();
+  const parentWidth = rectForHandles.width;
+  const parentHeight = rectForHandles.height;
     if(s.type==='circle'){
       // center handle
       const cen = document.createElement('div'); cen.className = 'shape-handle'; cen.dataset.shape = s.id; cen.dataset.idx = 0;
@@ -211,9 +213,10 @@
   function startDragShape(shapeId, idx, clientX, clientY){ active = {type:'shape', shapeId, idx, startX:clientX, startY:clientY}; }
 
   function updateHandlePositions(){
-    // Use the handles container's client size (CSS pixels) so positioning doesn't shift with page scrolling
-    const parentWidth = handlesEl.clientWidth;
-    const parentHeight = handlesEl.clientHeight;
+    // Use the canvas bounding rect (CSS pixels) so handle positions match the visible canvas exactly
+    const rect = canvas.getBoundingClientRect();
+    const parentWidth = rect.width;
+    const parentHeight = rect.height;
     handleEls.forEach((el,i)=>{
       const c = corners[i];
       el.style.left = (c.x * parentWidth) + 'px';
