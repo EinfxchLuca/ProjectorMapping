@@ -34,7 +34,11 @@
     canvas.height = Math.round(rect.height * dpr);
     canvas.style.width = rect.width + 'px';
     canvas.style.height = rect.height + 'px';
+    // redraw canvas and overlay + handles to remain in sync after resize
     draw();
+    renderOverlay();
+    updateHandlePositions();
+    updateShapeHandles();
   }
 
   window.addEventListener('resize', ()=>{ dpr = Math.max(1, window.devicePixelRatio || 1); resizeCanvas(); });
@@ -122,8 +126,9 @@
   }
 
   function renderOverlay(){
-    // Use canvas internal pixel size (device pixels) for the SVG viewBox so coordinates align with canvas rendering
-    const vw = canvas.width, vh = canvas.height;
+    // Use CSS pixel dimensions (bounding client rect) for the SVG viewBox so overlay aligns with visible canvas size
+    const rect = canvas.getBoundingClientRect();
+    const vw = rect.width, vh = rect.height;
     overlaySvg.setAttribute('viewBox', `0 0 ${vw} ${vh}`);
     overlaySvg.innerHTML = '';
     shapes.forEach(s=>{
