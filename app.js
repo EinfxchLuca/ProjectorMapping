@@ -101,11 +101,19 @@
 
   function deleteSelectedShape(){
     if(!selectedShapeId) return;
+    const removed = shapes.filter(s=>s.id===selectedShapeId);
+    // cleanup resources for removed shapes
+    removed.forEach(s=>{
+      if(s._url){ try{ URL.revokeObjectURL(s._url); }catch(e){} s._url = null; }
+      if(s.video){ try{ s.video.pause(); } catch(e){} s.video = null; }
+    });
     shapes = shapes.filter(s=>s.id!==selectedShapeId);
     selectedShapeId = shapes.length? shapes[0].id : null;
     renderShapesUI();
     renderOverlay();
     updateShapeHandles();
+    updateHandlePositions();
+    updateAnimationLoop();
     // redraw canvas to remove deleted shape's image
     draw();
   }
@@ -118,7 +126,14 @@
       const btns = document.createElement('div');
   const sel = document.createElement('button'); sel.className='selectBtn'; sel.textContent = selectedShapeId===s.id? 'Selected' : 'Select';
   sel.addEventListener('click', ()=>{ selectedShapeId = s.id; renderShapesUI(); renderOverlay(); updateShapeHandles(); updateHandlePositions(); });
-  const del = document.createElement('button'); del.className='selectBtn'; del.textContent='Delete'; del.addEventListener('click', ()=>{ shapes = shapes.filter(x=>x.id!==s.id); if(selectedShapeId===s.id) selectedShapeId=null; renderShapesUI(); renderOverlay(); updateShapeHandles(); updateHandlePositions(); draw(); });
+      const del = document.createElement('button'); del.className='selectBtn'; del.textContent='Delete'; del.addEventListener('click', ()=>{
+        // cleanup resources for this shape
+        const removed = shapes.filter(x=>x.id===s.id);
+        removed.forEach(r=>{ if(r._url){ try{ URL.revokeObjectURL(r._url); }catch(e){} r._url=null; } if(r.video){ try{ r.video.pause(); }catch(e){} r.video=null; } });
+        shapes = shapes.filter(x=>x.id!==s.id);
+        if(selectedShapeId===s.id) selectedShapeId=null;
+        renderShapesUI(); renderOverlay(); updateShapeHandles(); updateHandlePositions(); updateAnimationLoop(); draw();
+      });
       btns.appendChild(sel); btns.appendChild(del);
       div.appendChild(name); div.appendChild(btns);
       shapesListEl.appendChild(div);
@@ -126,9 +141,8 @@
   }
 
   function renderOverlay(){
-    // Use CSS pixel dimensions (bounding client rect) for the SVG viewBox so overlay aligns with visible canvas size
-    const rect = canvas.getBoundingClientRect();
-    const vw = rect.width, vh = rect.height;
+    // Use device pixel dimensions (canvas internal size) for the SVG viewBox so coordinates match drawing space
+    const vw = canvas.width, vh = canvas.height;
     overlaySvg.setAttribute('viewBox', `0 0 ${vw} ${vh}`);
     overlaySvg.innerHTML = '';
     shapes.forEach(s=>{
@@ -264,14 +278,18 @@
           if(s._url){ URL.revokeObjectURL(s._url); s._url = null; }
           s.image = img;
           s.video = null;
+          s._url = url; // keep object URL so browser can continue to animate GIFs
           s.imgWidth = img.width; s.imgHeight = img.height;
-          // detect animated GIF by MIME type
+          // if GIF, request animation
           if(f.type === 'image/gif'){
-            needsAnimation = true; startAnimationLoop();
+            needsAnimation = true; updateAnimationLoop();
+            s._isGif = true;
+          } else {
+            s._isGif = false;
           }
         }
       } else {
-        // global
+        // global image
         if(image && image._url){ URL.revokeObjectURL(image._url); }
         image = img; image._url = url;
         imgWidth = img.width; imgHeight = img.height;
@@ -279,13 +297,11 @@
         corners = [ {x:0,y:0},{x:1,y:0},{x:1,y:1},{x:0,y:1} ];
         updateHandlePositions();
         resizeCanvas();
-        if(f.type === 'image/gif') { needsAnimation = true; startAnimationLoop(); }
+        if(f.type === 'image/gif') { needsAnimation = true; updateAnimationLoop(); image._isGif = true; }
       }
       renderShapesUI();
       renderOverlay();
       draw();
-      // don't revoke URL for resources we keep; only revoke when replacing/deleting
-      if(!selectedShapeId) URL.revokeObjectURL(url);
     };
     // if it's a video file, create a HTMLVideoElement instead and assign once loaded
     if(f.type && f.type.startsWith('video/')){
@@ -295,7 +311,7 @@
           const s = shapes.find(x=>x.id===selectedShapeId);
           if(s){ if(s._url){ URL.revokeObjectURL(s._url); s._url=null; } s.video = vid; s.image = null; s.imgWidth = vid.videoWidth; s.imgHeight = vid.videoHeight; s._url = url; }
         } else { if(image && image._url){ URL.revokeObjectURL(image._url);} image = null; image = vid; image._url = url; imgWidth = vid.videoWidth; imgHeight = vid.videoHeight; corners = [ {x:0,y:0},{x:1,y:0},{x:1,y:1},{x:0,y:1} ]; updateHandlePositions(); resizeCanvas(); }
-        needsAnimation = true; startAnimationLoop(); renderShapesUI(); renderOverlay(); draw();
+        needsAnimation = true; updateAnimationLoop(); renderShapesUI(); renderOverlay(); draw();
       });
       // start loading
       vid.load();
@@ -303,6 +319,15 @@
     }
     img.src = url;
   });
+
+  function updateAnimationLoop(){
+    // decide whether an animation loop is needed (videos or gif images present)
+    let any = false;
+    if(image && image._isGif) any = true;
+    for(const s of shapes){ if(s.video) any = true; if(s._isGif) any = true; }
+    needsAnimation = any;
+    if(needsAnimation) startAnimationLoop(); else stopAnimationLoop();
+  }
 
   function startAnimationLoop(){
     if(animFrame) return;
