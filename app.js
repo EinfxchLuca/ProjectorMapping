@@ -141,8 +141,9 @@
   }
 
   function renderOverlay(){
-    // Use device pixel dimensions (canvas internal size) for the SVG viewBox so coordinates match drawing space
-    const vw = canvas.width, vh = canvas.height;
+    // Use CSS pixel dimensions (bounding client rect) for the SVG viewBox so overlay aligns with the visible canvas
+    const rect = canvas.getBoundingClientRect();
+    const vw = rect.width, vh = rect.height;
     overlaySvg.setAttribute('viewBox', `0 0 ${vw} ${vh}`);
     overlaySvg.innerHTML = '';
     shapes.forEach(s=>{
@@ -281,12 +282,9 @@
           s._url = url; // keep object URL so browser can continue to animate GIFs
           s.imgWidth = img.width; s.imgHeight = img.height;
           // if GIF, request animation
-          if(f.type === 'image/gif'){
-            needsAnimation = true; updateAnimationLoop();
-            s._isGif = true;
-          } else {
-            s._isGif = false;
-          }
+            // Detect GIF by MIME or file extension (some browsers omit MIME for local files)
+            const isGif = (f.type === 'image/gif') || (f.name && f.name.toLowerCase().endsWith('.gif'));
+            if(isGif){ s._isGif = true; updateAnimationLoop(); } else s._isGif = false;
         }
       } else {
         // global image
@@ -297,7 +295,7 @@
         corners = [ {x:0,y:0},{x:1,y:0},{x:1,y:1},{x:0,y:1} ];
         updateHandlePositions();
         resizeCanvas();
-        if(f.type === 'image/gif') { needsAnimation = true; updateAnimationLoop(); image._isGif = true; }
+        if((f.type === 'image/gif') || (f.name && f.name.toLowerCase().endsWith('.gif'))) { image._isGif = true; updateAnimationLoop(); }
       }
       renderShapesUI();
       renderOverlay();
