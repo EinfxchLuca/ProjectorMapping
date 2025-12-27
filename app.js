@@ -144,7 +144,12 @@
     // Use CSS pixel dimensions (bounding client rect) for the SVG viewBox so overlay aligns with the visible canvas
     const rect = canvas.getBoundingClientRect();
     const vw = rect.width, vh = rect.height;
+    overlaySvg.style.left = rect.left + 'px';
+    overlaySvg.style.top = rect.top + 'px';
+    overlaySvg.style.width = rect.width + 'px';
+    overlaySvg.style.height = rect.height + 'px';
     overlaySvg.setAttribute('viewBox', `0 0 ${vw} ${vh}`);
+    overlaySvg.setAttribute('preserveAspectRatio','none');
     overlaySvg.innerHTML = '';
     shapes.forEach(s=>{
       if(s.type==='circle'){
@@ -172,21 +177,23 @@
     if(!selectedShapeId) return;
     const s = shapes.find(x=>x.id===selectedShapeId);
     if(!s) return;
-    const rect = canvas.getBoundingClientRect();
+    // Use the shapeHandles container size (CSS pixels) for consistent handle placement
+    const parentWidth = shapeHandlesEl.clientWidth || handlesEl.clientWidth;
+    const parentHeight = shapeHandlesEl.clientHeight || handlesEl.clientHeight;
     if(s.type==='circle'){
       // center handle
       const cen = document.createElement('div'); cen.className = 'shape-handle'; cen.dataset.shape = s.id; cen.dataset.idx = 0;
-      cen.style.left = (s.center.x * rect.width) + 'px'; cen.style.top = (s.center.y * rect.height) + 'px';
+      cen.style.left = (s.center.x * parentWidth) + 'px'; cen.style.top = (s.center.y * parentHeight) + 'px';
       shapeHandlesEl.appendChild(cen);
       // radius handle at angle 0
       const rpoint = {x: s.center.x + s.radius, y: s.center.y};
       const edge = document.createElement('div'); edge.className='shape-handle'; edge.dataset.shape = s.id; edge.dataset.idx = 1;
-      edge.style.left = (rpoint.x * rect.width) + 'px'; edge.style.top = (rpoint.y * rect.height) + 'px';
+      edge.style.left = (rpoint.x * parentWidth) + 'px'; edge.style.top = (rpoint.y * parentHeight) + 'px';
       shapeHandlesEl.appendChild(edge);
     } else {
       s.points.forEach((p,idx)=>{
         const h = document.createElement('div'); h.className='shape-handle'; h.dataset.shape = s.id; h.dataset.idx = idx;
-        h.style.left = (p.x * rect.width) + 'px'; h.style.top = (p.y * rect.height) + 'px';
+        h.style.left = (p.x * parentWidth) + 'px'; h.style.top = (p.y * parentHeight) + 'px';
         shapeHandlesEl.appendChild(h);
       });
     }
@@ -204,12 +211,13 @@
   function startDragShape(shapeId, idx, clientX, clientY){ active = {type:'shape', shapeId, idx, startX:clientX, startY:clientY}; }
 
   function updateHandlePositions(){
-    const rect = canvas.getBoundingClientRect();
+    // Use the handles container's client size (CSS pixels) so positioning doesn't shift with page scrolling
+    const parentWidth = handlesEl.clientWidth;
+    const parentHeight = handlesEl.clientHeight;
     handleEls.forEach((el,i)=>{
       const c = corners[i];
-      const parentRect = handlesEl.getBoundingClientRect();
-      el.style.left = (c.x*parentRect.width) + 'px';
-      el.style.top = (c.y*parentRect.height) + 'px';
+      el.style.left = (c.x * parentWidth) + 'px';
+      el.style.top = (c.y * parentHeight) + 'px';
       // hide corner handles when a shape is selected
       el.style.display = selectedShapeId ? 'none' : 'block';
     });
